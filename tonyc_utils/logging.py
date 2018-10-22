@@ -11,7 +11,10 @@ LOG_LEVELS = [
     "debug",
     "trace"
 ]
-def setup_logging(level=0, handlers=[], quiet_stdout=False):
+
+DEFAULT_FORMAT="%(asctime)s [%(module)16s:%(lineno)-4d] [%(levelname)8s] %(message)s"
+
+def setup_logging(level=0, handlers=[], log_format=DEFAULT_FORMAT, quiet_stdout=False):
 
     level = LOG_LEVEL_DEFAULT + level
     if level < 0 or level >= len(LOG_LEVELS):
@@ -35,7 +38,7 @@ def setup_logging(level=0, handlers=[], quiet_stdout=False):
 
     logger = logging.getLogger()
     formatter = logging.Formatter(
-        "%(asctime)s [%(module)16s:%(lineno)-4d] [%(levelname)8s] %(message)s",
+        log_format,
         datefmt="%Y-%m-%d %H:%M:%S"
     )
     logger.setLevel(level)
