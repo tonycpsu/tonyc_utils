@@ -60,7 +60,6 @@ def query_choice(choices,
             ):
                 print("%s not one of: %s" %(choice, ','.join(choices)))
                 continue
-        print(("%s, %s" %(choices, choice)))
         return choice
 
 def query_yes_no(prompt=">>> ", default="y", single_char=False):
