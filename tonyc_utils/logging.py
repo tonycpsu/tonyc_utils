@@ -43,7 +43,7 @@ def setup_logging(level=0, handlers=[], log_format=DEFAULT_FORMAT, quiet_stdout=
     )
     logger.setLevel(level)
     outh = logging.StreamHandler(sys.stdout)
-    outh.setLevel(logging.ERROR if quiet_stdout else level)
+    outh.setLevel(logging.CRITICAL if quiet_stdout else level)
 
     handlers.insert(0, outh)
     # if not handlers:
