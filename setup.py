@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 name = "tonyc_utils"
 setup(name=name,
-      version='1.0',
+      version='0.0.0',
       description='Various utilities',
       author='Tony Cebzanov',
       author_email='tonycpsu@gmail.com',
