@@ -5,7 +5,7 @@ from setuptools import setup, find_packages
 name = "tonyc_utils"
 setup(name=name,
       version='0.0.1.dev0',
-      description='Various utilities',
+      description='Various utilities -- most notably logging helpers',
       author='Tony Cebzanov',
       author_email='tonycpsu@gmail.com',
       classifiers=[
