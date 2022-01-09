@@ -1,8 +1,10 @@
 import logging
 import os
 import sys
+import re
 
-LOG_LEVEL_DEFAULT=3
+LOG_LEVEL_DEFAULT = 3
+
 LOG_LEVELS = [
     "critical",
     "error",
@@ -12,84 +14,168 @@ LOG_LEVELS = [
     "trace"
 ]
 
-DEFAULT_FORMAT="%(asctime)s [%(module)16s:%(lineno)-4d] [%(levelname)8s] %(message)s"
+DEFAULT_FORMAT = "{asctime} {name:20.20} [{module:>16s}:{lineno:<4}] [{levelname:>8s}] {message}"
 
-log_level = None
-stdout_handler = None
-logger = None
-formatter = None
+LOG_LEVEL_RE = re.compile(
+    """
+    (?:(?P<module>[^=,?&]+)=)?(?P<level>\w+)(?:\?([^,]+))?
+    """
+, re.VERBOSE)
 
-def set_stdout_level(level=log_level):
-    global stdout_handler
-    assert(stdout_handler)
+LOG_PARAMS_RE = re.compile(
+    r"""
+    (?P<key>[^&,]+)=?(?P<value>[^&,]+)?&?
+    """
+, re.VERBOSE)
 
-    try:
-        handler = next(h for h in logger.handlers if h.stream == sys.stdout)
-    except StopIteration:
-        return
+def set_stream_log_level(stream, level, logger=None):
 
-    handler.setLevel(level)
+    if not logger:
+        logger = logging.getLogger()
 
-def add_log_handler(handler):
+    for h in logger.handlers:
+        if h.stream == stream:
+            h.setLevel(level)
+
+
+def add_log_handler(logger, handler, log_format=DEFAULT_FORMAT):
+    formatter = logging.Formatter(log_format, datefmt="%Y-%m-%d %H:%M:%S", style='{')
     handler.setFormatter(formatter)
+    if not isinstance(logger, logging.Logger):
+        logger = logging.getLogger(logger)
     logger.addHandler(handler)
 
 
-def setup_logging(level=0, handlers=[], log_format=DEFAULT_FORMAT, quiet_stdout=False):
+def add_logging_args(parser, short_args={}):
 
-    global logger
-    global log_level
-    global stdout_handler
-    global formatter
+    parser.add_argument(
+        short_args.get("log-config", "-l"),
+        "--log-config",
+        help="log level configuration"
+    )
 
-    log_level = LOG_LEVEL_DEFAULT + level
-    if log_level < 0 or log_level >= len(LOG_LEVELS):
-        raise Exception("bad log level: %d" %(log_level))
-    # add "trace" log level
+    group = parser.add_mutually_exclusive_group()
+
+    group.add_argument(
+        short_args.get("verbose", "-v"),
+        "--verbose",
+        action="count",
+        default=0,
+        help="verbose logging"
+    )
+
+    group.add_argument(
+        short_args.get("verbose-max", "-V"),
+        "--verbose-max",
+        action="store_true",
+        help="most verbose logging"
+    )
+
+    group.add_argument(
+        short_args.get("quiet", "-q"),
+        "--quiet",
+        action="count",
+        default=0,
+        help="quiet logging"
+    )
+
+    group.add_argument(
+        short_args.get("quiet-max", "-Q"),
+        "--quiet-max",
+        action="store_true",
+        help="quietist logging"
+    )
+
+
+def parse_log_config(s):
+    return [
+        (
+            logger_name,
+            level,
+            {
+                k: v or None
+                for k, v in LOG_PARAMS_RE.findall(params)
+                if k
+            }
+        )
+        for (logger_name, level, params)
+        in LOG_LEVEL_RE.findall(s)
+    ]
+
+def adjust_level(level, args):
+
+    if args.quiet_max:
+        level = LOG_LEVELS[0]
+    elif args.verbose_max:
+        level = LOG_LEVELS[-1]
+    elif level is None:
+        level = LOG_LEVEL_DEFAULT
+
+    if isinstance(level, str):
+        level = next(i for i, l in enumerate(LOG_LEVELS) if l == level)
+
+    level = level + args.verbose - args.quiet
+    level = getattr(logging, LOG_LEVELS[level].upper())
+
+    return level
+
+def setup_logging(args, default_logger=None):
+
     TRACE_LEVEL_NUM = 9
-    logging.addLevelName(TRACE_LEVEL_NUM, "TRACE")
+
+    for level in LOG_LEVELS[:-1]:
+        logging.addLevelName(getattr(logging, level.upper()), level)
+
+    logging.addLevelName(TRACE_LEVEL_NUM, "trace")
     logging.TRACE = TRACE_LEVEL_NUM
     def trace(self, message, *args, **kws):
         if self.isEnabledFor(TRACE_LEVEL_NUM):
             self._log(TRACE_LEVEL_NUM, message, args, **kws)
     logging.Logger.trace = trace
 
-    if isinstance(level, str):
-        log_level = getattr(logging, log_level.upper())
-    else:
-        log_level = getattr(logging, LOG_LEVELS[log_level].upper())
+    root_level = LOG_LEVEL_DEFAULT
 
-    if not isinstance(handlers, list):
-        handlers = [handlers]
-
-    logger = logging.getLogger()
-    formatter = logging.Formatter(
-        log_format,
-        datefmt="%Y-%m-%d %H:%M:%S"
+    # configure root logger
+    configure_logger(
+        None, adjust_level(LOG_LEVEL_DEFAULT, args),
+        dict(stderr=None)
     )
-    logger.setLevel(log_level)
-    stdout_handler = logging.StreamHandler(sys.stdout)
-    set_stdout_level(logging.CRITICAL if quiet_stdout else log_level)
 
-    handlers.insert(0, stdout_handler)
-    # if not handlers:
-    #     handlers = [logging.StreamHandler(sys.stdout)]
-    for handler in handlers:
-        add_log_handler(handler)
+    # configure any additional loggers
+    if args.log_config:
+        for logger, level, params in parse_log_config(args.log_config):
+            # level = adjust_level(level, args)
+            configure_logger(logger, level, params, default_logger=default_logger)
 
-    # logger = logging.basicConfig(
-    #     level=level,
-    #     format="%(asctime)s [%(module)16s:%(lineno)-4d] [%(levelname)8s] %(message)s",
-    #     datefmt="%Y-%m-%d %H:%M:%S"
-    # )
 
-    # FIXME: move this elsewhere
-    logging.getLogger("requests").setLevel(log_level+1)
-    logging.getLogger("urllib3").setLevel(log_level+1)
-    return logger
+
+def configure_logger(logger, level, params={}, default_logger=None):
+
+    if not isinstance(logger, logging.Handler):
+        if logger == ".":
+            logger = None
+        elif logger is None:
+            logger == default_logger
+
+        logger = logging.getLogger(logger)
+
+    logger.setLevel(level)
+
+    log_format = params.pop("format", DEFAULT_FORMAT)
+
+    for k, v in params.items():
+        if k == "file":
+            handler = logging.FileHandler(v)
+            add_log_handler(logger, handler, log_format=log_format)
+        elif k in ["stdout", "stderr"]:
+            handler = logging.StreamHandler(getattr(sys, k))
+            add_log_handler(logger, handler, log_format=log_format)
+
+
 
 __all__ = [
     "setup_logging",
-    "set_stdout_level",
+    "add_logging_args",
+    "set_stream_log_level",
     "add_log_handler"
 ]
