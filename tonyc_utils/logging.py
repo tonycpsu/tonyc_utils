@@ -14,7 +14,10 @@ LOG_LEVELS = [
     "trace"
 ]
 
-DEFAULT_FORMAT = "{asctime} {name:20.20} [{module:>16s}:{lineno:<4}] [{levelname:>8s}] {message}"
+LOG_FORMATS = {
+    "default": "{asctime}.{msecs:03.0f} {name:20.20} [{module:>16s}:{lineno:<4}] [{levelname:>8s}] {message}",
+    "compact": "{asctime} [{levelname:>8s}] {message}",
+}
 
 LOG_LEVEL_RE = re.compile(
     """
@@ -24,7 +27,7 @@ LOG_LEVEL_RE = re.compile(
 
 LOG_PARAMS_RE = re.compile(
     r"""
-    (?P<key>[^&,]+)=?(?P<value>[^&,]+)?&?
+    (?P<key>[^&,=]+)=?(?P<value>[^&,]+)?&?
     """
 , re.VERBOSE)
 
@@ -38,8 +41,19 @@ def set_stream_log_level(stream, level, logger=None):
             h.setLevel(level)
 
 
-def add_log_handler(logger, handler, log_format=DEFAULT_FORMAT):
-    formatter = logging.Formatter(log_format, datefmt="%Y-%m-%d %H:%M:%S", style='{')
+def add_log_handler(logger, handler, log_format=None):
+
+    if not log_format:
+        log_format = "default"
+
+    date_format = "%Y-%m-%d %H:%M:%S"
+    log_format = LOG_FORMATS.get(log_format, log_format)
+
+    formatter = logging.Formatter(
+        log_format,
+        datefmt=date_format,
+        style='{'
+    )
     handler.setFormatter(formatter)
     if not isinstance(logger, logging.Logger):
         logger = logging.getLogger(logger)
@@ -102,6 +116,7 @@ def parse_log_config(s):
         in LOG_LEVEL_RE.findall(s)
     ]
 
+
 def adjust_level(level, args):
 
     if args.quiet_max:
@@ -118,6 +133,7 @@ def adjust_level(level, args):
     level = getattr(logging, LOG_LEVELS[level].upper())
 
     return level
+
 
 def setup_logging(args, default_logger=None):
 
@@ -137,8 +153,7 @@ def setup_logging(args, default_logger=None):
 
     # configure root logger
     configure_logger(
-        None, adjust_level(LOG_LEVEL_DEFAULT, args),
-        dict(stderr=None)
+        None, adjust_level(LOG_LEVEL_DEFAULT, args)
     )
 
     # configure any additional loggers
@@ -159,16 +174,19 @@ def configure_logger(logger, level, params={}, default_logger=None):
 
         logger = logging.getLogger(logger)
 
+    if not {"stream", "file"} & set(params.keys()):
+        params["stream"] = "stderr"
+
     logger.setLevel(level)
 
-    log_format = params.pop("format", DEFAULT_FORMAT)
+    log_format = params.pop("format", "default")
 
     for k, v in params.items():
         if k == "file":
             handler = logging.FileHandler(v)
             add_log_handler(logger, handler, log_format=log_format)
-        elif k in ["stdout", "stderr"]:
-            handler = logging.StreamHandler(getattr(sys, k))
+        elif k == "stream":
+            handler = logging.StreamHandler(getattr(sys, v))
             add_log_handler(logger, handler, log_format=log_format)
 
 
