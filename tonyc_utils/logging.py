@@ -119,9 +119,9 @@ def parse_log_config(s):
 
 def adjust_level(level, args):
 
-    if args.quiet_max:
+    if "quiet_max" in args and  args.quiet_max:
         level = LOG_LEVELS[0]
-    elif args.verbose_max:
+    if "verbose_max" in args and  args.verbose_max:
         level = LOG_LEVELS[-1]
     elif level is None:
         level = LOG_LEVEL_DEFAULT
